@@ -1,0 +1,340 @@
+package com.sh.mycgpapro.Activity;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.SharedPreferences;
+import android.database.sqlite.SQLiteDatabase;
+import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkRequest;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.util.Log;
+import android.view.Gravity;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.AbsListView;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.SearchView;
+import android.widget.Spinner;
+import android.widget.TextView;
+import android.widget.Toast;
+import com.baoyz.swipemenulistview.SwipeMenu;
+import com.baoyz.swipemenulistview.SwipeMenuCreator;
+import com.baoyz.swipemenulistview.SwipeMenuItem;
+import com.baoyz.swipemenulistview.SwipeMenuListView;
+import com.google.android.gms.ads.AdListener;
+import com.google.android.gms.ads.AdRequest;
+import com.google.android.gms.ads.InterstitialAd;
+import com.google.android.gms.ads.LoadAdError;
+import com.google.android.gms.ads.MobileAds;
+import com.google.android.gms.ads.initialization.InitializationStatus;
+import com.google.android.gms.ads.initialization.OnInitializationCompleteListener;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.sh.mycgpapro.Adapter.CourseAdapter;
+import com.sh.mycgpapro.ModelClass.Model_class;
+import com.sh.mycgpapro.Database.DataBaseHelper;
+import com.sh.mycgpapro.Database.DatabaseSource;
+import com.sh.mycgpapro.R;
+import java.util.ArrayList;
+
+public class Course_Record extends AppCompatActivity {
+
+    ConnectivityManager connectivityManager;
+    ConnectivityManager.NetworkCallback networkCallback;
+    boolean network_status,failedToLoad;
+    int p,s;
+    private InterstitialAd mInterstitialAd;
+    SharedPreferences sharedPreferences;
+    FloatingActionButton fab;
+    ArrayList<Model_class> arrayList;
+    DatabaseSource databaseSource;
+    CourseAdapter courseAdapter;
+    SwipeMenuListView listView;
+    TextView tx;
+    Toolbar toolbar;
+    String orderBySemester = DataBaseHelper.COL_SEMESTER + " ASC";
+    String orderByGradeHigh = DataBaseHelper.COL_GRADE + " DESC";
+    String orderByAlphabet = DataBaseHelper.COL_NAME + " COLLATE NOCASE";
+    String currentOrder=orderBySemester;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_course__record);
+        tx=findViewById(R.id.empty_view_text);
+        toolbar =  findViewById(R.id.toolbar);
+        listView = findViewById(R.id.list);
+
+        setSupportActionBar(toolbar);
+        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        getSupportActionBar().setSubtitle("Course Records");
+
+        listView.setTextFilterEnabled(true);
+        fab = findViewById(R.id.fab);
+
+        loadAdd();
+        sharedPreferences = getSharedPreferences("course_sort", MODE_PRIVATE);
+        currentOrder = sharedPreferences.getString("requestCodeValue1", orderBySemester);
+
+        databaseSource = new DatabaseSource(getApplicationContext());
+        arrayList = databaseSource.getAllCourse(currentOrder);
+
+        if(arrayList.size()==0){
+            tx.setVisibility(View.VISIBLE);
+        }else {
+            tx.setVisibility(View.GONE);
+        }
+
+        callBack();
+
+        if(!isNetworkConnected()){
+
+            if(arrayList.size() > 0){
+
+                new MaterialAlertDialogBuilder(Course_Record.this,R.style.AlertDialogTheme)
+                        .setTitle("Internet Connection")
+                        .setMessage("Please connect with Internet. Internet connection required to load course records.")
+                        .setCancelable(false)
+                        .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialogInterface, int i) {
+                                dialogInterface.dismiss();
+                            }
+                        })
+
+                        .setCancelable(true)
+                        .show();
+            }
+
+        }
+
+        fab.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
+                LayoutInflater layoutInflater = LayoutInflater.from(Course_Record.this);
+
+                final View view = layoutInflater.inflate(R.layout.course_entry, null);
+
+                final EditText course_name = view.findViewById(R.id.course_name);
+                final EditText course_grade = view.findViewById(R.id.course_grade);
+                final EditText course_credit = view.findViewById(R.id.course_credit);
+                final EditText course_remarks = view.findViewById(R.id.course_remarks);
+                final ImageView im= view.findViewById(R.id.refreshID);
+                final Spinner semester = view.findViewById(R.id.semester);
+
+                im.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        course_name.setText("");
+                        course_grade.setText("");
+                        course_credit.setText("");
+                        course_remarks.setText("");
+                        semester.setSelection(0);
+                    }
+                });
+
+
+                new MaterialAlertDialogBuilder(Course_Record.this, R.style.AlertDialogTheme)
+
+                        .setPositiveButton("Save", null)
+
+                        .setNeutralButton("Cancel", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                dialog.dismiss();
+                            }
+                        })
+
+                        .setCancelable(false)
+                        .setView(view)
+                        .show()
+
+                        .getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+
+                        if(!TextUtils.isEmpty(course_name.getText().toString()) && !TextUtils.isEmpty(course_credit.getText().toString())&& !TextUtils.isEmpty(course_grade.getText().toString())) {
+
+                            p = semester.getSelectedItemPosition();
+
+                            final int semester_count = spinner_result(p);
+
+
+                            Model_class model = new Model_class(course_name.getText().toString(), course_remarks.getText().toString(), semester_count,
+                                    Float.parseFloat(course_credit.getText().toString()), Float.parseFloat(course_grade.getText().toString()));
+
+                            databaseSource = new DatabaseSource(getApplicationContext());
+
+                            Boolean status = databaseSource.addCourse(model);
+                            // loadData(currentOrder);
+
+                            if (status) {
+
+                                Toast.makeText(getApplicationContext(), "Successfully Added", Toast.LENGTH_LONG).show();
+                                //  name.setText("");
+                                // age.setText("");
+                                //  address.setText("");
+
+                                loadData(currentOrder);
+
+                                for(int j=0;j<arrayList.size();j++) {
+
+                                    if (arrayList.get(j).getId() == databaseSource.getLastRow()) {
+                                        listView.clearFocus();
+                                        listView.requestFocusFromTouch();
+                                        listView.setSelection(j);
+                                        break;
+
+                                    }
+
+                                }
+
+                            } else {
+
+                                Toast.makeText(getApplicationContext(), "Not Added!! Try Again", Toast.LENGTH_LONG).show();
+                            }
+
+                        }else {
+                            if(TextUtils.isEmpty(course_name.getText().toString())){
+                                Toast.makeText(getApplicationContext(), "Enter course name", Toast.LENGTH_LONG).show();
+                            }
+                            if(TextUtils.isEmpty(course_grade.getText().toString())){
+                                Toast.makeText(getApplicationContext(), "Enter course grade", Toast.LENGTH_LONG).show();
+                            }
+
+                            if(TextUtils.isEmpty(course_credit.getText().toString())){
+                                Toast.makeText(getApplicationContext(), "Enter course credit", Toast.LENGTH_LONG).show();
+                            }
+
+                        }
+
+                    }
+                });
+
+            }
+        });
+
+
+        SwipeMenuCreator creator = new SwipeMenuCreator() {
+
+            @Override
+            public void create(SwipeMenu menu) {
+                // create "open" item
+                SwipeMenuItem openItem = new SwipeMenuItem(
+                        getApplicationContext());
+                // set item background
+                openItem.setBackground(R.color.list);
+                // set item width
+                openItem.setWidth(200);
+                // set item title
+                openItem.setIcon(R.drawable.ic_autorenew_black_24dp);
+                // set item title fontsize
+                openItem.setTitleSize(18);
+                // set item title font color
+                openItem.setTitleColor(Color.WHITE);
+                // add to menu
+                menu.addMenuItem(openItem);
+
+                // create "delete" item
+                SwipeMenuItem deleteItem = new SwipeMenuItem(
+                        getApplicationContext());
+                // set item background
+                deleteItem.setBackground(R.color.list);
+                // set item width
+                deleteItem.setWidth(200);
+                // set a icon
+                deleteItem.setIcon(R.drawable.ic_delete_black_24dp);
+                deleteItem.setTitleSize(18);
+                // set item title font color
+                deleteItem.setTitleColor(Color.WHITE);
+                // add to menu
+                menu.addMenuItem(deleteItem);
+            }
+        };
+
+        listView.setMenuCreator(creator);
+        listView.setOnMenuItemClickListener(new SwipeMenuListView.OnMenuItemClickListener() {
+            @Override
+            public boolean onMenuItemClick(final int position, SwipeMenu menu, int index) {
+
+                final Model_class model = arrayList.get(position);
+                switch (index) {
+                    case 0:
+
+                        LayoutInflater layoutInflater = LayoutInflater.from(Course_Record.this);
+
+                        final View view = layoutInflater.inflate(R.layout.course_update_row, null);
+                        final EditText course_name = view.findViewById(R.id.course_name);
+                        final EditText course_grade = view.findViewById(R.id.course_grade);
+                        final EditText course_credit = view.findViewById(R.id.course_credit);
+                        final EditText course_remarks = view.findViewById(R.id.course_remarks);
+                        final Spinner semester = view.findViewById(R.id.semester);
+
+
+                        if (model != null) {
+
+                            course_name.setText(model.getCourse_name());
+                            course_grade.setText(String.valueOf(model.getGrade()));
+                            course_credit.setText(String.valueOf(model.getCredit()));
+                            course_remarks.setText(model.getCourse_remarks());
+
+                            semester.setSelection(model.getSemester() - 1);
+
+                        }
+
+                        new MaterialAlertDialogBuilder(Course_Record.this, R.style.AlertDialogTheme)
+                                .setPositiveButton("Update", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        if (model != null) {
+                                            int id = model.getId();
+
+
+                                            p = semester.getSelectedItemPosition();
+
+                                            final int semester_count = spinner_result(p);
+
+
+                                            Model_class model = new Model_class(course_name.getText().toString(), course_remarks.getText().toString(), semester_count, id,
+                                                    Float.parseFloat(course_credit.getText().toString()), Float.parseFloat(course_grade.getText().toString()));
+
+                                            databaseSource = new DatabaseSource(getApplicationContext());
+
+                                            Boolean updatedStatus = databaseSource.updateCourse(model);
+
+
+                                            if (updatedStatus) {
+
+                                                Toast.makeText(getApplicationContext(), "Successfully Updated", Toast.LENGTH_LONG).show();
+
+                                                loadData(currentOrder);
+                                                fab.setVisibility(View.VISIBLE);
+
+                                                for(int i=0;i<arrayList.size();i++){
+                                                    if(arrayList.get(i).getId()==id){
+                                                        // listView.requestFocusFromTouch();
+                                                        // listView.setSelection(i);
+                                                        listView.clearFocus();
+                                                        listView.requestFocusFromTouch();
+                                                        listView.setSelection(i);
+                                                        break;
+
+                                                    }
+
+                                                }
+
+                                            } else {
+
+              
